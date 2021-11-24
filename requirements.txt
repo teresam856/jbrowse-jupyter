@@ -1,3 +1,5 @@
 pytest==6.2.5
 git+https://github.com/GMOD/dash_jbrowse.git@remove_api_work
 regex==2021.11.10
+django
+flask

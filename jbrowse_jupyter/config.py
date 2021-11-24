@@ -2,6 +2,8 @@ from jupyter_dash import JupyterDash
 import dash_jbrowse
 import dash_html_components as html
 import re
+from django.core.validators import URLValidator, ValidationError
+from server import launch
 
 class JBrowseConfig():
 
@@ -13,6 +15,15 @@ class JBrowseConfig():
             "location": ""
         }
         self.tracks_ids_map = {}
+    
+    # TODO: do we want to check this here or in dash_jbrowse?
+    def valid_url(self, file):
+        validate = URLValidator()
+        try:
+            validate(file)
+            return True
+        except ValidationError as exception:
+            return False
     
     def get_config(self):
         return self.config
@@ -36,11 +47,15 @@ class JBrowseConfig():
     
     ########## PASS IN FILE ###########
     def set_assembly (self, assembly_data, aliases, refname_aliases, bgzip= False):
-        if not bgzip:
-            self.unzipped_assembly(assembly_data, aliases, refname_aliases)
+        if self.valid_url(assembly_data):
+            if not bgzip:
+                self.unzipped_assembly(assembly_data, aliases, refname_aliases)
+            else:
+                self.zipped_assembly(assembly_data, aliases, refname_aliases)
         else:
-            self.zipped_assembly(assembly_data, aliases, refname_aliases)
-    
+            # launch flask server
+            launch()
+            # figure out passing url, etc
 
     def unzipped_assembly(self, assembly_data, aliases = [], refname_aliases = []):
         name = self.get_name(assembly_data)
@@ -127,4 +142,6 @@ class JBrowseConfig():
     ########## CORRECT LOCATION ########
     def set_location(self, location=""):
         self.config["location"] = location
+
+    
             
