@@ -1,0 +1,1 @@
+from jbrowse_jupyter.config import JBrowseConfig
