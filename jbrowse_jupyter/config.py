@@ -3,7 +3,7 @@ import dash_jbrowse
 import dash_html_components as html
 import re
 from django.core.validators import URLValidator, ValidationError
-from server import launch
+from jbrowse_jupyter.server import launch
 
 class JBrowseConfig():
 
