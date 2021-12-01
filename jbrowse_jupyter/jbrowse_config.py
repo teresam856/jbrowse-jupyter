@@ -1,6 +1,13 @@
 from jbrowse_jupyter.util import is_URL,defaults, guess_file_name
 from jbrowse_jupyter.tracks import guess_adapter_type, guess_track_type
 
+from jupyter_dash import JupyterDash
+import dash_jbrowse
+import dash_html_components as html
+import re
+from django.core.validators import URLValidator, ValidationError
+from jbrowse_jupyter.server import launch   
+
 def create_jbrowse2(viewType, **kwargs):
     # TODO: maybe add aliases of hg19 and hg38
     available_genomes = {"hg19", "hg38"}
@@ -48,6 +55,16 @@ class JBrowseConfig:
 
     def get_config(self):
         return self.config
+
+    # ========== Server ============
+
+    def valid_url(self, file):
+        validate = URLValidator()
+        try:
+            validate(file)
+            return True
+        except ValidationError as exception:
+            return False
     
     # ========== Assembly ===========
 
@@ -63,18 +80,23 @@ class JBrowseConfig:
     # TODO infer the type of the adapter based on file name
     # TODO infer name of the assembly based on the file name
     # TODO check if the assembly data is a url
-    def set_assembly(self, assembly_data, aliases, refname_aliases, bgzip=False):
-        if not bgzip:
-            self.unzipped_assembly(assembly_data, aliases, refname_aliases)
+    def set_assembly (self, assembly_data, aliases, refname_aliases, bgzip= False):
+        if self.valid_url(assembly_data):
+            if not bgzip:
+                self.unzipped_assembly(assembly_data, aliases, refname_aliases)
+            else:
+                self.zipped_assembly(assembly_data, aliases, refname_aliases)
         else:
-            self.zipped_assembly(assembly_data, aliases, refname_aliases)
+            # launch flask server
+            launch()
+            # figure out passing url, etc
 
-    def unzipped_assembly(self, assembly_data, aliases=[], refname_aliases=[]):
+    def unzipped_assembly(self, assembly_data, aliases = [], refname_aliases = []):
         name = self.get_name(assembly_data)
 
-        self.config["assembly"] = {
+        self.config['assembly'] = {
             "name": name,
-            "sequence": {
+            "sequence":{
                 "type": "ReferenceSequenceTrack",
                 "trackId": name + "-ReferenceSequenceTrack",
                 "adapter": {
@@ -87,15 +109,16 @@ class JBrowseConfig:
                     },
                 },
             },
-            "aliases": aliases,
-            "refNameAliases": refname_aliases,
+            "aliases":aliases,
+            "refNameAliases": refname_aliases
         }
-
+    
     def zipped_assembly(self, assembly_data, aliases, refname_aliases):
         name = self.get_name(assembly_data)
-        self.config["assembly"] = {
+        print('name:' + name)
+        self.config['assembly'] = {
             "name": name,
-            "sequence": {
+            "sequence":{
                 "type": "ReferenceSequenceTrack",
                 "trackId": name + "-ReferenceSequenceTrack",
                 "adapter": {
@@ -111,26 +134,13 @@ class JBrowseConfig:
                     },
                 },
             },
-            "aliases": aliases,
-            "refNameAliases": refname_aliases,
+            "aliases":aliases,
+            "refNameAliases": refname_aliases
         }
+    
 
     def get_name(self, assembly_file):
-        name_end = 0
-        name_start = 0
-        for i in range(0, len(assembly_file)):
-            if (
-                assembly_file[len(assembly_file) - i - 1 : len(assembly_file) - i]
-                == "/"
-            ):
-                name_start = len(assembly_file) - i
-                break
-        for i in range(name_start, len(assembly_file)):
-            if assembly_file[i : i + 1] == ".":
-                name_end = i
-                break
-
-        return assembly_file[name_start:name_end]
+        return re.search(r'(\w+)\.(?:fa|fasta|fa\.gz)$', assembly_file).group(1)
 
     # ============ Tracks =============
 
@@ -258,6 +268,24 @@ class JBrowseConfig:
                 "tracks": reference_track
             }
         }
+
+    def get_reference_track(self, assembly, display_assembly):
+        assembly_name = assembly["name"]
+        configuration = assembly_name + "-ReferenceSequenceTrack"
+        ref = {}
+        if display_assembly:
+            ref = {
+                "type": "ReferenceSequenceTrack",
+                "configuration": configuration,
+                "displays": [
+                    {
+                        "type": "LinearBasicDisplay",
+                        "configuration": configuration + "-LinearBasicDisplay"
+                    }
+                ],
+
+            }
+        return ref
 
     def set_theme(self,primary, secondary=None, tertiary=None, quaternary=None):
         palette = {
