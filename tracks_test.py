@@ -1,12 +1,13 @@
 import dash
 import dash_jbrowse
+import pandas as pd
 import dash_html_components as html
-from jbrowse_jupyter import create_jbrowse2, create_component
+from jbrowse_jupyter import create, create_component
 
 app = dash.Dash(__name__)
 
 # ======== default view =========
-jbrowse_conf = create_jbrowse2('view', genome="hg19")
+jbrowse_conf = create('view', genome="hg19")
 # Add Wiggle Track
 jbrowse_conf.add_track("https://jbrowse.org/genomes/hg19/COLO829/colo_normal.bw", name="wiggle track example")
 # # Add Feature Track
@@ -19,7 +20,14 @@ jbrowse_conf.add_track("https://s3.amazonaws.com/jbrowse.org/genomes/hg19/NA1287
 jbrowse_conf.add_track("https://s3.amazonaws.com/jbrowse.org/genomes/hg19/skbr3/reads_lr_skbr3.fa_ngmlr-0.2.3_mapped.down.cram", name="alignments cram track example")
 jbrowse_conf.add_track("https://s3.amazonaws.com/jbrowse.org/genomes/hg19/amplicon_deep_seq/out.marked.bam", name="alignments bam track example")
 jbrowse_conf.set_location("chr17:41195312..41276764")
-# TODO: automatically add the sequence adapter for cram
+
+# Add dataframe track
+data_without_score = { 'refName': ["1", "1"], 'start': [123, 456], 'end': [780, 101112], 'name': ['feature1', 'feature2']}  
+# data_with_score = {'refName': [1, 2], 'start': [123, 456], 'end': [780, 101112], 'name': ['feature1', 'feature2'], 'score': [1, 2]}
+df = pd.DataFrame(data_without_score) 
+jbrowse_conf.add_df_track(df, 'data-frame-test')
+jbrowse_conf.set_default_session(['data-frame-test', 'alignments bam track example'])
+jbrowse_conf.set_location("1:11700..12500")
 config = jbrowse_conf.get_config()
 
 # ======= jb2 config ===========

@@ -1,15 +1,11 @@
-from jbrowse_jupyter.util import is_URL,defaults, guess_file_name
-from jbrowse_jupyter.tracks import guess_adapter_type, guess_track_type
-
-from jupyter_dash import JupyterDash
-import dash_jbrowse
-import dash_html_components as html
+import os
+from jbrowse_jupyter.util import is_URL,defaults, guess_file_name, get_name
+from jbrowse_jupyter.tracks import guess_adapter_type, guess_track_type, check_track_data, get_from_config_adapter, guess_display_type
 import re
-from django.core.validators import URLValidator, ValidationError
-from jbrowse_jupyter.server import launch   
+# from django.core.validators import URLValidator, ValidationError
+# from jbrowse_jupyter.server import launch   
 
-def create_jbrowse2(viewType, **kwargs):
-    # TODO: maybe add aliases of hg19 and hg38
+def create(viewType, **kwargs):
     available_genomes = {"hg19", "hg38"}
     conf = {}
     if viewType == "view":
@@ -22,8 +18,7 @@ def create_jbrowse2(viewType, **kwargs):
         else:
             raise TypeError("genome is required arg for viewType=view")
     elif viewType == "JB2config":
-        # TODO: add converter.py call here
-        raise TypeError("currently not supporting JB2 web configs to React JBrowse LGV")
+        raise TypeError("currently not supporting JB2 configs files")
     elif viewType == "config":
         if "conf" in kwargs:
             # config from an object
@@ -32,11 +27,11 @@ def create_jbrowse2(viewType, **kwargs):
             # default empty configuration object
             return JBrowseConfig()
     else:
-        raise TypeError(f'Invalid view type {viewType}, please chose from "view", "JB2config", or "config"')
+        raise TypeError(f'Invalid view type {viewType}, please chose from "view" or "config"')
     return JBrowseConfig(conf=conf)
+
 class JBrowseConfig:
     def __init__(self, conf=None):
-        # TODO make sure if a conf is passed, that is mapped to all the defaults
         self.config = {
             "assembly": {},
             "tracks": [],
@@ -48,10 +43,15 @@ class JBrowseConfig:
                     "tracks":[]
                 }
             },
+            "aggregateTextSearchAdapters": [],
             "location": "",
             "configuration": {}
         } if conf is None else conf
-        self.tracks_ids_map = set()
+        if conf is not None:
+            ids = {x["trackId"]: x for x in conf["tracks"]}
+            self.tracks_ids_map = ids
+        self.tracks_ids_map = {}
+        # print("trackIds map", self.tracks_ids_map.keys())
 
     def get_config(self):
         return self.config
@@ -77,95 +77,111 @@ class JBrowseConfig:
         else:
             raise Exception("Can not get assembly name. Please configure the assembly first.")
 
-    # TODO infer the type of the adapter based on file name
-    # TODO infer name of the assembly based on the file name
-    # TODO check if the assembly data is a url
-    def set_assembly (self, assembly_data, aliases, refname_aliases, bgzip= False):
-        if self.valid_url(assembly_data):
-            if not bgzip:
-                self.unzipped_assembly(assembly_data, aliases, refname_aliases)
-            else:
-                self.zipped_assembly(assembly_data, aliases, refname_aliases)
+    # TODO: test two bit adapter and other supported assembly types
+    def set_assembly(self, assembly_data, aliases, refname_aliases):
+        if (is_URL(assembly_data)):
+            name = get_name(assembly_data)
+            assembly_adapter = guess_adapter_type(assembly_data, 'uri')
+            assembly_config = {
+                "name": name,
+                "sequence": {
+                    "type": "ReferenceSequenceTrack",
+                    "trackId": f'{name}-ReferenceSequenceTrack',
+                    "adapter": assembly_adapter
+                },
+                "aliases": aliases,
+                "refNameAliases": refname_aliases,
+            }
+            self.config["assembly"] = assembly_config
         else:
-            # launch flask server
-            launch()
-            # figure out passing url, etc
-
-    def unzipped_assembly(self, assembly_data, aliases = [], refname_aliases = []):
-        name = self.get_name(assembly_data)
-
-        self.config['assembly'] = {
-            "name": name,
-            "sequence":{
-                "type": "ReferenceSequenceTrack",
-                "trackId": name + "-ReferenceSequenceTrack",
-                "adapter": {
-                    "type": "BgzipFastaAdapter",
-                    "fastaLocation": {
-                        "uri": assembly_data,
-                    },
-                    "faiLocation": {
-                        "uri": assembly_data + ".fai",
-                    },
-                },
-            },
-            "aliases":aliases,
-            "refNameAliases": refname_aliases
-        }
-    
-    def zipped_assembly(self, assembly_data, aliases, refname_aliases):
-        name = self.get_name(assembly_data)
-        print('name:' + name)
-        self.config['assembly'] = {
-            "name": name,
-            "sequence":{
-                "type": "ReferenceSequenceTrack",
-                "trackId": name + "-ReferenceSequenceTrack",
-                "adapter": {
-                    "type": "BgzipFastaAdapter",
-                    "fastaLocation": {
-                        "uri": assembly_data,
-                    },
-                    "faiLocation": {
-                        "uri": assembly_data + ".fai",
-                    },
-                    "gziLocation": {
-                        "uri": assembly_data + ".gzi",
-                    },
-                },
-            },
-            "aliases":aliases,
-            "refNameAliases": refname_aliases
-        }
-    
-
-    def get_name(self, assembly_file):
-        return re.search(r'(\w+)\.(?:fa|fasta|fa\.gz)$', assembly_file).group(1)
+            raise TypeError("Local files are not currently supported.") 
 
     # ============ Tracks =============
 
-    def get_reference_track(self, assembly, display_assembly):
-        # TODO: what is the config assembly, same as param?
-        assembly_name = self.config[assembly]["name"]
-        configuration = assembly_name + "-ReferenceSequenceTrack"
-        ref = {}
-        if display_assembly:
-            ref = {
-                "type": "ReferenceSequenceTrack",
-                "configuration": configuration,
-                "displays": [
-                    {
-                        "type": "LinearBasicDisplay",
-                        "configuration": configuration + "-LinearBasicDisplay"
-                    }
-                ],
+    def get_reference_track(self):
+        """
+        Returns the reference track for a default session
+        """
+        assembly_name = self.get_assembly_name()
+        configuration = f'{assembly_name}-ReferenceSequenceTrack'
+        return {
+            "type": "ReferenceSequenceTrack",
+            "configuration": configuration,
+            "displays": [
+                {
+                    "type": "LinearReferenceSequenceDisplay",
+                    "configuration": f'{configuration}-LinearReferenceSequenceDisplay',
+                }
+            ],
+        }
 
-            }
-        return 
+    def get_track_display(self, track):
+        track_type = track["type"]
+        track_id = track["trackId"]
+        display_type = guess_display_type(track_type)
+        return {
+            "type": track_type,
+            "configuration": track_id,
+            "displays": [
+                {
+                    "type": display_type,
+                    "configuration": f'{track_id}-{display_type}'
+                }
+            ]
+        }
+    
 
     def get_tracks(self):
+        # TODO: add param here to specify which tracks we want to get
+        # such as feature, alignments, variant, or wiggle
         """returns list of tracks in the configuration"""
         return self.config["tracks"]
+
+    def add_df_track(self, track_data, name, **kwargs):
+        # TODO: implement it
+        """
+        Adds a track from a data frame
+
+        :param df: the data frame with track data. Must have cols 
+            refName, start, end, name. The refName and name column values must
+            be strings while the start and end must be integers.
+            The column additional can optionally be include with more feature information.
+            If a score column is present, it will be used and the track will be rendered 
+            to display quantitative features. Scores must also be integers.
+        :param str name: name for the track
+        """
+        overwrite = kwargs.get('overwrite', False)
+        # check that the required columns are present
+        check_track_data(track_data)
+        # if score column is present => QuantitativeTrack, else FeatureTrack
+        if not self.get_assembly():
+            raise Exception("Please set the assembly before adding a track.")
+        assembly_name = self.get_assembly_name()
+        trackId = f'{assembly_name}-{name}'
+        trackType = "FeatureTrack"
+        if "score" in track_data:
+            trackType = "QuantitativeTrack"
+        adapter = get_from_config_adapter(track_data)
+        df_track_config = {
+            "type": trackType,
+            "trackId": trackId,
+            "name": name,
+            "assemblyNames": [assembly_name],
+            "adapter": adapter
+        }
+        # check that the trackId does not exist yet
+        if trackId in self.tracks_ids_map.keys() and not overwrite:
+            # print("hello")
+            raise TypeError(f'track with trackId: "{trackId}" already exists in config. Set overwrite to True if you want to overwrite it.')
+        if trackId in self.tracks_ids_map.keys() and overwrite:
+            # delete track and overwrite it
+            oldTracks = self.get_tracks()
+            self.config["tracks"] = [track for track in oldTracks if track["trackId"] != trackId]
+       
+        newTracks = self.get_tracks()
+        newTracks.append(df_track_config)
+        self.config["tracks"] = newTracks
+        self.tracks_ids_map[trackId] = df_track_config
 
     def add_track(self, data, **kwargs):
         """
@@ -187,7 +203,7 @@ class JBrowseConfig:
         index = kwargs.get('index', None)
         overwrite = kwargs.get('overwrite', False)
         # check that the assembly is configured
-        if not self.get_assembly:
+        if not self.get_assembly():
             raise Exception("Please set the assembly before adding a track.")
         assemblyNames = [self.get_assembly_name()]
         
@@ -199,8 +215,6 @@ class JBrowseConfig:
         if is_URL(data):
             # we are defaulting to uri protocol since we have not added local file support
             adapter = guess_adapter_type(data, 'uri', "defaultIndex")
-            print("ADAPTER", adapter)
-            # Error if adapter is unknown or unsupported
             if (adapter["type"] == "UNKNOWN"): 
                 raise TypeError("Adapter type is not recognized")
             if (adapter["type"] == "UNSUPPORTED"): 
@@ -210,33 +224,12 @@ class JBrowseConfig:
                 # get sequence adapter
                 extra_config = self.get_assembly()["sequence"]["adapter"]
                 adapter["sequenceAdapter"] = extra_config
-                print("NEW ADAPTER", adapter)
-            # ==== set up track information =========
             trackType = guess_track_type(adapter["type"])
-            print("============== type: ", trackType)
             if trackType not in {'AlignmentsTrack', 'QuantitativeTrack', 'VariantTrack', 'FeatureTrack', 'ReferenceSequenceTrack'}:
                 raise TypeError("Track type is not supported")
             # uses filename as trackId
             trackId = guess_file_name(data)
             trackName = trackId if name is None else name
-
-            # print("======\n")
-            # print("tracks", self.get_tracks())
-            if trackId in self.tracks_ids_map and not overwrite:
-                print("hello")
-                raise TypeError(f'track with trackId: "{trackId}" already exists in config, set overwrite to True if you want to overwrite it.')
-            elif trackId in self.tracks_ids_map and overwrite:
-                # delete track and overwrite it
-                oldTracks = self.get_tracks()
-                self.config["tracks"] = [track for track in oldTracks if track["trackId"] != trackId]
-            else:
-                self.tracks_ids_map.add(trackName)
-            
-            # print('===== Debugging ======\n')
-            # print(f'Name is: {trackName}')
-            # print(f'Type is: {trackType}')
-            # print(f'TrackId is: {trackId}')
-            # print(f'Assembly name(s) is: {assemblyNames}')
             track_config = {
                 "type": trackType,
                 "trackId": trackId,
@@ -244,9 +237,26 @@ class JBrowseConfig:
                 "assemblyNames": assemblyNames,
                 "adapter": adapter
             }
+            # print("======\n")
+            # print("tracks", self.get_tracks())
+            if trackId in self.tracks_ids_map.keys() and not overwrite:
+                # print("hello")
+                raise TypeError(f'track with trackId: "{trackId}" already exists in config, set overwrite to True if you want to overwrite it.')
+            if trackId in self.tracks_ids_map.keys() and overwrite:
+                # delete track and overwrite it
+                oldTracks = self.get_tracks()
+                self.config["tracks"] = [track for track in oldTracks if track["trackId"] != trackId]
+            
+            # print('===== Debugging ======\n')
+            # print(f'Name is: {trackName}')
+            # print(f'Type is: {trackType}')
+            # print(f'TrackId is: {trackId}')
+            # print(f'Assembly name(s) is: {assemblyNames}')
+
             newTracks = self.get_tracks()
             newTracks.append(track_config)
-            self.config["tracks"] = newTracks       
+            self.config["tracks"] = newTracks
+            self.tracks_ids_map[trackId] = track_config       
         else:
             raise TypeError("Local files are not currently supported.")
 
@@ -257,36 +267,32 @@ class JBrowseConfig:
 
 
     # ======= default session ========
-    def set_default_session(self, assembly, displayed_tracks, display_assembly=True):
-        reference_track = self.get_reference_track(assembly, display_assembly)
+    def set_default_session(self,displayed_tracks,display_assembly=True):
+        reference_track = {}
+        tracks_configs = []
+        if (display_assembly):
+            reference_track = self.get_reference_track()
+            tracks_configs.append(reference_track)
+        
+        # make sure all displayed_track names
+        # print(self.tracks_ids_map)
+        tracks_to_display = [track for track in self.get_tracks() if track["name"] in displayed_tracks]
+        # print(tracks_to_display)
+        for t in tracks_to_display:
+            tracks_configs.append(self.get_track_display(t))   
+            # print(self.get_track_display(t))
+        # for track_name in self.tracks_ids_map  
         #tracks = self.get_tracks(assembly, displayed_tracks, display_assembly)
         self.config["defaultSession"] = {
             "name": "my session",
             "view": {
                 "id": "LinearGenomeView",
                 "type": "LinearGenomeView",
-                "tracks": reference_track
+                "tracks": tracks_configs
             }
         }
 
-    def get_reference_track(self, assembly, display_assembly):
-        assembly_name = assembly["name"]
-        configuration = assembly_name + "-ReferenceSequenceTrack"
-        ref = {}
-        if display_assembly:
-            ref = {
-                "type": "ReferenceSequenceTrack",
-                "configuration": configuration,
-                "displays": [
-                    {
-                        "type": "LinearBasicDisplay",
-                        "configuration": configuration + "-LinearBasicDisplay"
-                    }
-                ],
-
-            }
-        return ref
-
+    # ====== theme ===============
     def set_theme(self,primary, secondary=None, tertiary=None, quaternary=None):
         palette = {
            "primary": {

@@ -20,6 +20,7 @@ class TestConfig(unittest.TestCase):
         ]
         self.config_obj.set_assembly("https://jbrowse.org/genomes/hg19/fasta/hg19.fa.gz", aliases, ref_name, True)
         assembly = self.config_obj.get_assembly()
+        print(assembly)
         self.assertEqual(assembly["name"], "hg19")
         self.assertEqual(assembly["aliases"], [
             "GRCh37"
@@ -106,7 +107,7 @@ class TestConfig(unittest.TestCase):
 if __name__ == "__main__":
     config_obj = JBrowseConfig()
     test = TestConfig(config_obj)
-    test.test_config()
+    test.test_human()
     # test.test_session()
     # test.test_assembly()
     # test.test_location()
