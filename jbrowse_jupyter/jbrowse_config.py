@@ -1,6 +1,9 @@
 import os
 from jbrowse_jupyter.util import is_URL,defaults, guess_file_name, get_name
 from jbrowse_jupyter.tracks import guess_adapter_type, guess_track_type, check_track_data, get_from_config_adapter, guess_display_type
+import re
+# from django.core.validators import URLValidator, ValidationError
+# from jbrowse_jupyter.server import launch   
 
 def create(viewType, **kwargs):
     available_genomes = {"hg19", "hg38"}
@@ -52,6 +55,16 @@ class JBrowseConfig:
 
     def get_config(self):
         return self.config
+
+    # ========== Server ============
+
+    def valid_url(self, file):
+        validate = URLValidator()
+        try:
+            validate(file)
+            return True
+        except ValidationError as exception:
+            return False
     
     # ========== Assembly ===========
 
@@ -116,6 +129,7 @@ class JBrowseConfig:
                 }
             ]
         }
+    
 
     def get_tracks(self):
         # TODO: add param here to specify which tracks we want to get
